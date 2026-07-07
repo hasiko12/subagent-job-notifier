@@ -105,6 +105,50 @@ curl -X POST http://localhost:45680/api/jobs \
 
 登録データは `jobs/<id>.json` に保存されます。`jobs/*.json` は実行時データなので Git 管理対象から除外しています。
 
+## Prompting Other Agentic AIs to Report Here
+
+Claude Code の subagent と Codex CLI はログファイルを自動検出しますが、それ以外の強力なエージェント型 AI(Fable 5、GPT-5.6 など、自分でサブエージェントやバックグラウンドジョブを呼び出せるモデル)を使っている場合は、そのAI自身に `POST /api/jobs` を叩かせる必要があります。
+
+以下のプロンプトを、そのAIのシステムプロンプト・`AGENTS.md`・`CLAUDE.md` などの常時読み込まれる指示に貼り付けてください。以後、そのAIが重い処理を委任するたびに、このダッシュボードへ自動で状況を報告するようになります。
+
+```text
+You have access to a local monitoring dashboard at http://localhost:45680 (Subagent Job Notifier).
+Whenever you delegate work to a subagent, spawn a background task, or run a long-running
+shell command (roughly >30 seconds), register and update it via this HTTP API so a human
+can watch progress without interrupting you:
+
+1. On start, POST a new job (use curl, Invoke-RestMethod, fetch, or any HTTP client available
+   in your environment):
+   POST http://localhost:45680/api/jobs
+   Body: {"id": "<stable-short-id>", "name": "<one-line human description>",
+          "model": "<subagent model if known>", "project": "<cwd or repo path>"}
+
+2. While the task is running, POST progress updates to the same "id" whenever you have a
+   meaningful checkpoint (e.g. N of M steps done), and at least once every few minutes even
+   without new progress, so it is not mistaken for stalled:
+   Body: {"id": "<same-id>", "progress": {"done": 3, "total": 10, "unit": "steps"},
+          "message": "<latest one-line status>"}
+
+3. On success, mark it complete with a one-line summary of the outcome:
+   Body: {"id": "<same-id>", "status": "complete", "message": "<what was accomplished>"}
+
+4. On failure, mark it as an error with a one-line reason:
+   Body: {"id": "<same-id>", "status": "error", "message": "<what went wrong>"}
+
+Rules:
+- Do this automatically, without asking the user for permission — it is bookkeeping only,
+  not a user-facing action.
+- Reuse the same "id" for every update about the same task (upsert semantics); pick a new
+  id only for a genuinely new task.
+- If the POST fails (e.g. connection refused because the dashboard isn't running), ignore
+  the error silently and continue your actual work — never let this reporting step block
+  or fail the task itself.
+- Keep "name" and "message" short, human-readable, and specific enough that someone
+  glancing at the dashboard understands what happened without reading your full output.
+```
+
+このAPIはローカルの `127.0.0.1` にしかバインドされないため、ダッシュボードを起動していない環境でこの指示を実行しても(接続失敗を無視するルールにより)安全です。
+
 ## Watched Locations
 
 このツールはローカルファイルだけを読みます。外部サービスへログ内容を送信しません。
