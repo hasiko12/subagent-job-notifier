@@ -1,0 +1,21 @@
+# Local editor and agent state
+.claude/
+.codex/
+.agents/
+
+# Runtime data
+jobs/*.json
+!jobs/.gitkeep
+
+# Dependencies and build artifacts
+node_modules/
+dist/
+build/
+.next/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db

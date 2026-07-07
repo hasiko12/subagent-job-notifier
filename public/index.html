@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subagent Job Notifier</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #17181c; --line: #2c2f34;
+    --text: #f0efec; --sub: #8b8b85; --dim: #6e6e68; --faint: #55564f;
+    --amber: #BA7517; --amber-t: #FAC775;
+    --green: #3B6D11; --green-t: #C0DD97;
+    --red: #A32D2D; --red-t: #F09595;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+         font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 600; margin: 0 0 8px; }
+  .note { font-size: 12px; color: var(--sub); background: #1d2025; padding: 8px 12px;
+          border-radius: 6px; margin-bottom: 14px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 24px; flex-wrap: wrap; }
+  button, select { font-size: 13px; color: var(--text); background: #23262c;
+    border: 1px solid #3a3d43; padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+  button:hover { background: #2b2f36; }
+  select { margin-left: auto; }
+  h2 { font-size: 18px; font-weight: 600; margin: 0 0 12px; }
+  h2 .count { font-size: 12px; font-weight: 400; margin-left: 8px; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px;
+          margin-bottom: 10px; background: var(--panel); }
+  .card.running { border-color: var(--amber); }
+  .card.complete { border-color: var(--green); }
+  .card.stalled, .card.error { border-color: var(--red); }
+  .row1 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+  .name { font-family: Consolas, monospace; font-size: 14px; color: var(--text); }
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 10px; white-space: nowrap; }
+  .b-sonnet { background: #0C447C; color: #B5D4F4; }
+  .b-opus   { background: #3C3489; color: #CECBF6; }
+  .b-haiku  { background: #72243E; color: #F4C0D1; }
+  .b-fable  { background: #712B13; color: #F5C4B3; }
+  .b-codex, .b-gpt { background: #085041; color: #9FE1CB; }
+  .b-script { background: #4A1B0C; color: #F5C4B3; }
+  .b-other  { background: #444441; color: #D3D1C7; }
+  .st { font-size: 11px; white-space: nowrap; }
+  .st.running { color: var(--amber-t); }
+  .st.complete { color: var(--green-t); }
+  .st.stalled, .st.error { color: var(--red-t); }
+  .bar { height: 4px; background: #2c2f34; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--amber-t); }
+  .card.complete .bar .fill { background: var(--green-t); }
+  .meta { font-size: 12px; color: var(--sub); }
+  .msg { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  .proj { font-size: 11px; color: var(--faint); font-family: Consolas, monospace; margin-top: 4px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .empty { color: var(--dim); font-size: 13px; padding: 24px 0; }
+  .scanned { font-size: 11px; color: var(--faint); margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Subagent Job Notifier</h1>
+  <div class="note">このタブを開いておくと、サブエージェント完了時にブラウザ通知を出します。</div>
+  <div class="toolbar">
+    <button id="btn-notify">🔔 ブラウザ通知を許可</button>
+    <button id="btn-refresh">↻ 更新</button>
+    <select id="filter"><option value="">project: すべて</option></select>
+  </div>
+  <h2>Jobs <span class="count" id="count"></span></h2>
+  <div id="jobs"><div class="empty">読み込み中…</div></div>
+  <div class="scanned" id="scanned"></div>
+</div>
+<script>
+'use strict';
+const POLL_MS = 30000;
+let lastData = { jobs: [], scannedAt: 0 };
+const prevStatus = new Map();
+let firstLoad = true;
+
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtTime(ms) {
+  if (!ms) return '-';
+  const d = new Date(ms), now = new Date();
+  const t = d.toLocaleTimeString('ja-JP', { hour12: false });
+  return d.toDateString() === now.toDateString()
+    ? t : d.toLocaleDateString('ja-JP', { month: '2-digit', day: '2-digit' }) + ' ' + t;
+}
+function fmtElapsed(sec) {
+  if (sec < 60) return sec + '秒';
+  if (sec < 3600) return Math.floor(sec / 60) + '分' + (sec % 60) + '秒';
+  return Math.floor(sec / 3600) + '時間' + Math.floor((sec % 3600) / 60) + '分';
+}
+const STATUS_LABEL = { running: 'running', complete: '✓ complete', stalled: 'stalled(更新なし)', error: '✗ error' };
+
+function render() {
+  const filter = document.getElementById('filter').value;
+  const jobs = lastData.jobs.filter(j => !filter || j.project === filter);
+  const running = lastData.jobs.filter(j => j.status === 'running').length;
+
+  document.title = (running ? `(${running}) ` : '') + 'Subagent Job Notifier';
+  document.getElementById('count').innerHTML = running
+    ? `<span style="color:var(--amber-t)">● ${running} running</span>` : '';
+  document.getElementById('scanned').textContent = lastData.scannedAt
+    ? `最終スキャン: ${fmtTime(lastData.scannedAt)}(サーバは15秒ごと、この画面は30秒ごとに更新)` : '';
+
+  const box = document.getElementById('jobs');
+  if (!jobs.length) {
+    box.innerHTML = '<div class="empty">対象期間内のジョブはありません。サブエージェントを起動するとここに表示されます。</div>';
+    return;
+  }
+  box.innerHTML = jobs.map(j => {
+    const p = j.progress || {};
+    const done = p.tasksTotal ? p.tasksDone : (p.total ? p.done : null);
+    const total = p.tasksTotal || p.total || 0;
+    const unit = p.tasksTotal ? 'tasks' : (p.unit || '');
+    const progText = total ? ` · ${unit} ${done}/${total} (${Math.round(done / total * 100)}%)` : '';
+    const bar = total
+      ? `<div class="bar"><div class="fill" style="width:${Math.min(100, Math.round(done / total * 100))}%"></div></div>` : '';
+    const lines = p.lines ? ` · ログ ${p.lines}行` : '';
+    const timeline = (j.status === 'complete' || j.status === 'error')
+      ? `started: ${fmtTime(j.startedAt)} · completed: ${fmtTime(j.completedAt)}(${fmtElapsed(j.elapsedSec)})`
+      : `started: ${fmtTime(j.startedAt)} · 経過 ${fmtElapsed(j.elapsedSec)} · 最終更新 ${fmtTime(j.lastActivityAt)}`;
+    return `<div class="card ${j.status}">
+      <div class="row1">
+        <span class="name">${esc(j.name)}</span>
+        <span class="badge b-${esc(j.modelKey || 'other')}" title="${esc(j.model || '')}">${esc(j.modelKey === 'codex' || j.modelKey === 'gpt' ? 'GPT codex' : (j.modelKey || j.model || '?'))}</span>
+        <span class="st ${j.status}">${esc(j.agentType)} · ${STATUS_LABEL[j.status] || j.status}</span>
+      </div>
+      <div class="meta">${timeline}${lines}${progText}</div>
+      ${bar}
+      ${j.lastMessage ? `<div class="msg">最終: ${esc(j.lastMessage)}</div>` : ''}
+      ${j.project ? `<div class="proj">${esc(j.project)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function updateFilter() {
+  const sel = document.getElementById('filter');
+  const cur = sel.value;
+  const projects = [...new Set(lastData.jobs.map(j => j.project).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">project: すべて</option>' +
+    projects.map(p => `<option value="${esc(p)}">${esc(p.split(/[\\/]/).pop() || p)}</option>`).join('');
+  if (projects.includes(cur)) sel.value = cur;
+}
+
+function notifyTransitions() {
+  for (const j of lastData.jobs) {
+    const prev = prevStatus.get(j.id);
+    const finished = j.status === 'complete' || j.status === 'error';
+    const wasActive = prev === 'running' || prev === 'stalled';
+    if (!firstLoad && wasActive && finished
+        && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification((j.status === 'error' ? '❌ エラー: ' : '✅ 完了: ') + j.name, {
+        body: `${j.agentType} (${j.modelKey || j.model || ''}) · ${fmtElapsed(j.elapsedSec)}\n${j.lastMessage || ''}`,
+        tag: j.id,
+      });
+    }
+    prevStatus.set(j.id, j.status);
+  }
+  firstLoad = false;
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/jobs');
+    lastData = await res.json();
+    updateFilter();
+    render();
+    notifyTransitions();
+  } catch (e) {
+    document.getElementById('scanned').textContent = 'サーバに接続できません: ' + e.message;
+  }
+}
+
+document.getElementById('btn-refresh').addEventListener('click', refresh);
+document.getElementById('btn-notify').addEventListener('click', async () => {
+  if (!('Notification' in window)) { alert('このブラウザは通知に対応していません'); return; }
+  const perm = await Notification.requestPermission();
+  document.getElementById('btn-notify').textContent =
+    perm === 'granted' ? '🔔 通知: 許可済み' : '🔕 通知: ' + perm;
+});
+document.getElementById('filter').addEventListener('change', render);
+if ('Notification' in window && Notification.permission === 'granted') {
+  document.getElementById('btn-notify').textContent = '🔔 通知: 許可済み';
+}
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body>
+</html>

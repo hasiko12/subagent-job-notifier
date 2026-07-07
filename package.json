@@ -1,0 +1,19 @@
+{
+  "name": "subagent-job-notifier",
+  "version": "0.1.0",
+  "description": "Local dashboard and notifications for Claude Code subagents, Codex CLI sessions, and external jobs.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "subagent",
+    "notification",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}
