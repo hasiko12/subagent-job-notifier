@@ -40,6 +40,11 @@ http://localhost:45680
 
 画面上の通知許可ボタンを押すと、ジョブ完了時にブラウザ通知が表示されます。
 
+あとは言語プロンプト命令だけでも動きますが、
+Prompting Other Agentic AIs to Report Here
+の正式な方法だと、claude以外のいろいろなAIで動く可能性も高くなります。
+
+
 ## Options
 
 ```bash
