@@ -45,6 +45,8 @@ Prompting Other Agentic AIs to Report Here
 の正式な方法だと、claude以外のいろいろなAIで動く可能性も高くなります。
 
 
+https://github.com/hasiko12/subagent-job-notifier/blob/main/sample.png
+
 ## Options
 
 ```bash
